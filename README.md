@@ -1,36 +1,85 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Стежки
 
-## Getting Started
+Локальний петпроєкт: хайкінг-треки зі Strava на 3D-карті Українських Карпат.
 
-First, run the development server:
+## Що вміє
+
+- вхід через Strava OAuth
+- синхронізація лише хайків (Hike) у Postgres
+- порівняння маршрутів кількох людей різними кольорами (після того як друзі підключать Strava)
+- 3D-карта Українських Карпат (MapLibre + OSM + AWS Terrarium DEM)
+- точні межі 11 карпатських масивів
+- фільтр за гірським масивом
+- 2D/3D перемикач і підсвічені GPS-треки
+- український інтерфейс
+- усе крутиться в Docker
+
+## Швидкий старт
+
+### 1. Strava API
+
+1. Відкрий [https://www.strava.com/settings/api](https://www.strava.com/settings/api)
+2. Створи застосунок
+3. **Authorization Callback Domain:** `localhost`
+4. Скопіюй Client ID і Client Secret
+
+### 2. Налаштуй `.env`
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Заповни:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```env
+STRAVA_CLIENT_ID=...
+STRAVA_CLIENT_SECRET=...
+SESSION_SECRET=будь-який-довгий-секрет-мінімум-32-символи
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 3. Запуск у Docker
 
-## Learn More
+```bash
+docker compose up --build
+```
 
-To learn more about Next.js, take a look at the following resources:
+Відкрий [http://localhost:3000](http://localhost:3000) → **Підключити Strava**.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Після логіну треки підтягнуться автоматично і з’являться на карті.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Сервіси
 
-## Deploy on Vercel
+| Сервіс | Порт | Опис |
+|--------|------|------|
+| `app`  | 3000 | Next.js |
+| `db`   | 5432 | PostgreSQL |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Корисні команди
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+# логи
+docker compose logs -f app
+
+# лише база
+docker compose up db
+
+# зупинити
+docker compose down
+```
+
+## Локальна розробка без Docker-апа (опційно)
+
+```bash
+docker compose up db -d
+npm install
+npx prisma migrate dev
+npm run dev
+```
+
+## Структура
+
+- `src/app/api/auth/strava` — OAuth
+- `src/app/api/sync` — повторна синхронізація
+- `src/app/api/activities/tracks` — polyline для карти
+- `src/components/TracksMap.tsx` — Leaflet + OSM
+- `prisma/schema.prisma` — User + Activity

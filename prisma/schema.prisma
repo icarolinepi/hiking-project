@@ -1,0 +1,46 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String     @id @default(cuid())
+  stravaId     BigInt     @unique
+  username     String?
+  firstname    String?
+  lastname     String?
+  profile      String?
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  lastSyncedAt DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  activities   Activity[]
+}
+
+model Activity {
+  id              String   @id @default(cuid())
+  stravaId        BigInt   @unique
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  type            String
+  sportType       String?
+  distance        Float
+  movingTime      Int
+  elapsedTime     Int
+  totalElevation  Float?
+  startDate       DateTime
+  summaryPolyline String?
+  startLatlng     Json?
+  endLatlng       Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, startDate])
+}
