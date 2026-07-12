@@ -20,6 +20,12 @@ import {
   COMPARE_ME_COLOR,
   COMPARE_OTHER_COLOR,
 } from "@/lib/athleteColors";
+import {
+  SEASON_OPTIONS,
+  collectTrackYears,
+  trackMatchesPeriod,
+  type SeasonId,
+} from "@/lib/seasons";
 import { formatSolarTime, getSolarEvents } from "@/lib/solar";
 
 const TracksMap = dynamic(
@@ -36,6 +42,8 @@ type MeResponse = {
     id: string;
     name: string;
     profile: string | null;
+    shareToken: string | null;
+    shareUrl: string | null;
     lastSyncedAt: string | null;
     activityCount: number;
   };
@@ -54,6 +62,11 @@ export function AppShell() {
   const [compareOpen, setCompareOpen] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedArea, setSelectedArea] = useState("Усі масиви");
+  const [selectedYear, setSelectedYear] = useState<number | "all">("all");
+  const [selectedSeason, setSelectedSeason] = useState<SeasonId | "all">("all");
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const [showAreas, setShowAreas] = useState(true);
   const [basemap, setBasemap] = useState<"topo" | "satellite">("topo");
@@ -81,6 +94,7 @@ export function AppShell() {
         const nextAthletes: AthletePayload[] = tracksData.athletes ?? [];
         setTracks(nextTracks);
         setAthletes(nextAthletes);
+        setShareUrl(meData.user?.shareUrl ?? null);
         setCompareWithId((prev) => {
           if (!prev) return null;
           return nextAthletes.some((athlete) => athlete.id === prev) ? prev : null;
@@ -89,6 +103,7 @@ export function AppShell() {
         setTracks([]);
         setAthletes([]);
         setCompareWithId(null);
+        setShareUrl(null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Помилка завантаження");
@@ -140,6 +155,17 @@ export function AppShell() {
     [tracks],
   );
 
+  const availableYears = useMemo(() => {
+    if (!myId) return [];
+    const relevant = carpathianTracks.filter((track) => {
+      if (compareWithId) {
+        return track.userId === myId || track.userId === compareWithId;
+      }
+      return track.userId === myId;
+    });
+    return collectTrackYears(relevant.map((track) => track.startDate));
+  }, [carpathianTracks, compareWithId, myId]);
+
   const filtered = useMemo(() => {
     if (!myId) return [];
 
@@ -150,6 +176,10 @@ export function AppShell() {
             return false;
           }
         } else if (track.userId !== myId) {
+          return false;
+        }
+
+        if (!trackMatchesPeriod(track.startDate, selectedYear, selectedSeason)) {
           return false;
         }
 
@@ -166,7 +196,14 @@ export function AppShell() {
             track.userId === myId ? COMPARE_ME_COLOR : COMPARE_OTHER_COLOR,
         };
       });
-  }, [carpathianTracks, compareWithId, myId, selectedArea]);
+  }, [
+    carpathianTracks,
+    compareWithId,
+    myId,
+    selectedArea,
+    selectedSeason,
+    selectedYear,
+  ]);
 
   const mapStats = useMemo(
     () => ({
@@ -256,7 +293,31 @@ export function AppShell() {
     setAthletes([]);
     setCompareWithId(null);
     setCompareOpen(false);
+    setShareUrl(null);
     setSelectedId(null);
+  }
+
+  async function handleShare() {
+    setShareBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/me/share", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Не вдалося створити посилання");
+      }
+      const url =
+        data.shareUrl ||
+        `${window.location.origin}/u/${data.shareToken as string}`;
+      setShareUrl(url);
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      window.setTimeout(() => setShareCopied(false), 2000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Помилка поширення");
+    } finally {
+      setShareBusy(false);
+    }
   }
 
   function selectCompareUser(athleteId: string) {
@@ -323,6 +384,19 @@ export function AppShell() {
                 {compareAthlete
                   ? `Порівняння: ${compareAthlete.name}`
                   : "Порівняти"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={handleShare}
+                disabled={shareBusy}
+                title={shareUrl ?? "Створити публічне посилання"}
+              >
+                {shareBusy
+                  ? "Готую…"
+                  : shareCopied
+                    ? "Скопійовано!"
+                    : "Поділитися картою"}
               </button>
               <button
                 type="button"
@@ -463,6 +537,43 @@ export function AppShell() {
                     {carpathianAreaNames.map((area) => (
                       <option key={area.name} value={area.name}>
                         {area.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="filter">
+                  <span>Рік</span>
+                  <select
+                    value={selectedYear === "all" ? "all" : String(selectedYear)}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setSelectedYear(value === "all" ? "all" : Number(value));
+                      setSelectedId(null);
+                    }}
+                  >
+                    <option value="all">Усі роки</option>
+                    {availableYears.map((year) => (
+                      <option key={year} value={year}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="filter">
+                  <span>Сезон</span>
+                  <select
+                    value={selectedSeason}
+                    onChange={(event) => {
+                      setSelectedSeason(event.target.value as SeasonId | "all");
+                      setSelectedId(null);
+                    }}
+                  >
+                    <option value="all">Усі сезони</option>
+                    {SEASON_OPTIONS.map((season) => (
+                      <option key={season.id} value={season.id}>
+                        {season.label}
                       </option>
                     ))}
                   </select>

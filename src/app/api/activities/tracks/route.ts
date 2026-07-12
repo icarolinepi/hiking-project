@@ -1,4 +1,3 @@
-import polyline from "@mapbox/polyline";
 import { NextResponse } from "next/server";
 import {
   athleteDisplayName,
@@ -6,6 +5,7 @@ import {
 } from "@/lib/athleteColors";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { activitiesToTracks } from "@/lib/tracksFromActivities";
 
 export type AthletePayload = {
   id: string;
@@ -68,7 +68,7 @@ export async function GET() {
     },
   });
 
-  const tracks: TrackPayload[] = [];
+  const tracks = activitiesToTracks(activities);
   const athleteStats = new Map<
     string,
     {
@@ -80,49 +80,21 @@ export async function GET() {
     }
   >();
 
-  for (const activity of activities) {
-    if (!activity.summaryPolyline) continue;
-    try {
-      const decoded = polyline.decode(activity.summaryPolyline) as [
-        number,
-        number,
-      ][];
-      if (decoded.length < 2) continue;
-
-      const color = colorForAthleteId(activity.userId);
-      const athleteName = athleteDisplayName(activity.user);
-
-      tracks.push({
-        id: activity.id,
-        userId: activity.userId,
-        athleteName,
-        color,
-        name: activity.name,
-        type: activity.type,
-        sportType: activity.sportType,
-        distanceKm: Math.round((activity.distance / 1000) * 100) / 100,
-        movingTimeSeconds: activity.movingTime,
-        elapsedTimeSeconds: activity.elapsedTime,
-        elevationGainM: activity.totalElevation,
-        startDate: activity.startDate.toISOString(),
-        coordinates: decoded,
-      });
-
-      const existing = athleteStats.get(activity.userId);
-      if (existing) {
-        existing.trackCount += 1;
-      } else {
-        athleteStats.set(activity.userId, {
-          id: activity.user.id,
-          name: athleteName,
-          profile: activity.user.profile,
-          color,
-          trackCount: 1,
-        });
-      }
-    } catch {
-      // пропускаємо биті polyline
+  for (const track of tracks) {
+    const existing = athleteStats.get(track.userId);
+    if (existing) {
+      existing.trackCount += 1;
+      continue;
     }
+    const activity = activities.find((row) => row.userId === track.userId);
+    if (!activity) continue;
+    athleteStats.set(track.userId, {
+      id: activity.user.id,
+      name: athleteDisplayName(activity.user),
+      profile: activity.user.profile,
+      color: colorForAthleteId(track.userId),
+      trackCount: 1,
+    });
   }
 
   const athletes: AthletePayload[] = [...athleteStats.values()]

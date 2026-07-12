@@ -16,6 +16,7 @@ export async function GET() {
       lastname: true,
       username: true,
       profile: true,
+      shareToken: true,
       lastSyncedAt: true,
       _count: { select: { activities: true } },
     },
@@ -36,6 +37,11 @@ export async function GET() {
     _count: true,
   });
 
+  const appUrl = (process.env.APP_URL || "http://localhost:3000").replace(
+    /\/$/,
+    "",
+  );
+
   return NextResponse.json({
     authenticated: true,
     user: {
@@ -45,6 +51,8 @@ export async function GET() {
         user.username ||
         "Атлет",
       profile: user.profile,
+      shareToken: user.shareToken,
+      shareUrl: user.shareToken ? `${appUrl}/u/${user.shareToken}` : null,
       lastSyncedAt: user.lastSyncedAt,
       activityCount: user._count.activities,
     },
