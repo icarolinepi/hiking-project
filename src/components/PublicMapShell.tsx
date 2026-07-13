@@ -13,12 +13,7 @@ import {
   findConqueredSummits,
   formatSummitList,
 } from "@/data/summits";
-import {
-  SEASON_OPTIONS,
-  collectTrackYears,
-  trackMatchesPeriod,
-  type SeasonId,
-} from "@/lib/seasons";
+import { collectTrackYears, trackMatchesYear } from "@/lib/seasons";
 
 const TracksMap = dynamic(
   () => import("@/components/TracksMap").then((m) => m.TracksMap),
@@ -38,7 +33,6 @@ export function PublicMapShell({ token }: PublicMapShellProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedArea, setSelectedArea] = useState("Усі масиви");
   const [selectedYear, setSelectedYear] = useState<number | "all">("all");
-  const [selectedSeason, setSelectedSeason] = useState<SeasonId | "all">("all");
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const [showAreas, setShowAreas] = useState(true);
   const [basemap, setBasemap] = useState<"topo" | "satellite">("topo");
@@ -86,7 +80,7 @@ export function PublicMapShell({ token }: PublicMapShellProps) {
 
   const filtered = useMemo(() => {
     return carpathianTracks.filter((track) => {
-      if (!trackMatchesPeriod(track.startDate, selectedYear, selectedSeason)) {
+      if (!trackMatchesYear(track.startDate, selectedYear)) {
         return false;
       }
       if (selectedArea === "Усі масиви") return true;
@@ -94,7 +88,7 @@ export function PublicMapShell({ token }: PublicMapShellProps) {
         isCoordinateInArea(selectedArea, coordinate),
       );
     });
-  }, [carpathianTracks, selectedArea, selectedSeason, selectedYear]);
+  }, [carpathianTracks, selectedArea, selectedYear]);
 
   const mapStats = useMemo(
     () => ({
@@ -210,24 +204,6 @@ export function PublicMapShell({ token }: PublicMapShellProps) {
                 {availableYears.map((year) => (
                   <option key={year} value={year}>
                     {year}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="filter">
-              <span>Сезон</span>
-              <select
-                value={selectedSeason}
-                onChange={(event) => {
-                  setSelectedSeason(event.target.value as SeasonId | "all");
-                  setSelectedId(null);
-                }}
-              >
-                <option value="all">Усі сезони</option>
-                {SEASON_OPTIONS.map((season) => (
-                  <option key={season.id} value={season.id}>
-                    {season.label}
                   </option>
                 ))}
               </select>

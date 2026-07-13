@@ -14,35 +14,23 @@ import {
   findConqueredSummits,
   formatSummitList,
 } from "@/data/summits";
+import { AccountMenu } from "@/components/AccountMenu";
+import { SiteNav } from "@/components/SiteNav";
 import {
   COMPARE_ME_COLOR,
   COMPARE_OTHER_COLOR,
 } from "@/lib/athleteColors";
 import { downloadGpx } from "@/lib/gpx";
-import {
-  downloadPhotoGpx,
-  emptyPhotosGpxMessage,
-  extractPhotoPoints,
-  formatPhotoTimeRange,
-  restampTrackToPhotoWindow,
-  routedPointsToGpx,
-} from "@/lib/photosToGpx";
-import {
-  SEASON_OPTIONS,
-  collectTrackYears,
-  trackMatchesPeriod,
-  type SeasonId,
-} from "@/lib/seasons";
+import { collectTrackYears, trackMatchesYear } from "@/lib/seasons";
 import { formatSolarTime, getSolarEvents } from "@/lib/solar";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   useTransition,
-  type ChangeEvent,
 } from "react";
 
 const TracksMap = dynamic(
@@ -80,18 +68,15 @@ export function AppShell() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedArea, setSelectedArea] = useState("Усі масиви");
   const [selectedYear, setSelectedYear] = useState<number | "all">("all");
-  const [selectedSeason, setSelectedSeason] = useState<SeasonId | "all">("all");
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
-  const [photoGpxBusy, setPhotoGpxBusy] = useState(false);
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const [showAreas, setShowAreas] = useState(true);
   const [basemap, setBasemap] = useState<"topo" | "satellite">("topo");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
-  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const myId = me?.user?.id ?? null;
 
@@ -198,7 +183,7 @@ export function AppShell() {
           return false;
         }
 
-        if (!trackMatchesPeriod(track.startDate, selectedYear, selectedSeason)) {
+        if (!trackMatchesYear(track.startDate, selectedYear)) {
           return false;
         }
 
@@ -220,7 +205,6 @@ export function AppShell() {
     compareWithId,
     myId,
     selectedArea,
-    selectedSeason,
     selectedYear,
   ]);
 
@@ -339,78 +323,6 @@ export function AppShell() {
     }
   }
 
-  async function handlePhotosToGpx(event: ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (files.length === 0) return;
-
-    setPhotoGpxBusy(true);
-    setError(null);
-    try {
-      const extracted = await extractPhotoPoints(files);
-      if (extracted.points.length === 0) {
-        throw new Error(emptyPhotosGpxMessage(extracted));
-      }
-
-      const routeRes = await fetch("/api/route/trail", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          waypoints: extracted.points.map((point) => ({
-            lat: point.lat,
-            lon: point.lon,
-            time: point.time.toISOString(),
-            ele: point.ele,
-          })),
-        }),
-      });
-      const routeData = await routeRes.json();
-      if (!routeRes.ok) {
-        throw new Error(
-          routeData.error || "Не вдалося прокласти маршрут по стежках",
-        );
-      }
-
-      const routedPoints = (routeData.points ?? []) as Array<{
-        lat: number;
-        lon: number;
-        ele: number | null;
-        time: string;
-      }>;
-      if (routedPoints.length < 2 && extracted.points.length > 1) {
-        throw new Error("Маршрут по стежках порожній");
-      }
-
-      const firstPhoto = extracted.points[0];
-      const lastPhoto = extracted.points[extracted.points.length - 1];
-      const timedTrack = restampTrackToPhotoWindow(
-        routedPoints,
-        firstPhoto.time,
-        lastPhoto.time,
-      );
-      const gpx = routedPointsToGpx(timedTrack, "Маршрут з фото");
-      downloadPhotoGpx(gpx, "marshrut-z-foto");
-
-      const distanceHint =
-        typeof routeData.distanceKm === "number"
-          ? ` · ~${routeData.distanceKm} км`
-          : "";
-      const skipHint =
-        extracted.skipped > 0
-          ? ` Пропущено без GPS/часу: ${extracted.skipped}.`
-          : "";
-      setError(
-        `GPX: ${extracted.points.length} фото · ${formatPhotoTimeRange(firstPhoto.time, lastPhoto.time)}${distanceHint}.${skipHint}`,
-      );
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Не вдалося зібрати GPX з фото",
-      );
-    } finally {
-      setPhotoGpxBusy(false);
-    }
-  }
-
   function selectCompareUser(athleteId: string) {
     setCompareWithId(athleteId);
     setCompareOpen(false);
@@ -442,73 +354,41 @@ export function AppShell() {
   return (
     <div className="shell">
       <header className="topbar">
+        {me?.authenticated && me.user ? (
+          <AccountMenu
+            user={{ name: me.user.name, profile: me.user.profile }}
+            compareLabel={
+              compareAthlete
+                ? `Порівняння: ${compareAthlete.name}`
+                : "Порівняти"
+            }
+            compareActive={Boolean(compareWithId)}
+            onCompare={() => setCompareOpen(true)}
+            onShare={handleShare}
+            shareLabel={
+              shareBusy
+                ? "Готую…"
+                : shareCopied
+                  ? "Скопійовано!"
+                  : "Поділитися картою"
+            }
+            shareBusy={shareBusy}
+            onSync={handleSync}
+            syncBusy={isPending}
+            onLogout={handleLogout}
+          />
+        ) : null}
+
         <div className="brand-block">
-          <p className="brand">Стежки</p>
+          <Link href="/" className="brand brand-link">
+            Стежки
+          </Link>
           <p className="tagline">усі твої маршрути на одній карті</p>
         </div>
+        <SiteNav />
 
-        <div className="topbar-actions">
-          {me?.authenticated ? (
-            <>
-              <div className="user-chip">
-                {me.user?.profile ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={me.user.profile} alt="" className="avatar" />
-                ) : null}
-                <span>{me.user?.name}</span>
-              </div>
-              <button
-                type="button"
-                className={`btn ${compareWithId ? "btn-primary" : "btn-ghost"}`}
-                onClick={() => setCompareOpen(true)}
-              >
-                {compareAthlete
-                  ? `Порівняння: ${compareAthlete.name}`
-                  : "Порівняти"}
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={handleShare}
-                disabled={shareBusy}
-                title={shareUrl ?? "Створити публічне посилання"}
-              >
-                {shareBusy
-                  ? "Готую…"
-                  : shareCopied
-                    ? "Скопійовано!"
-                    : "Поділитися картою"}
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => photoInputRef.current?.click()}
-                disabled={photoGpxBusy}
-                title="Зібрати GPX з геотегів у фото"
-              >
-                {photoGpxBusy ? "Прокладаю стежки…" : "GPX з фото"}
-              </button>
-              <input
-                ref={photoInputRef}
-                type="file"
-                accept=".jpg,.jpeg,.heic,.heif,.tif,.tiff,image/jpeg,image/heic,image/heif,image/tiff"
-                multiple
-                hidden
-                onChange={handlePhotosToGpx}
-              />
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={handleSync}
-                disabled={isPending}
-              >
-                {isPending ? "Синхронізую…" : "Оновити зі Strava"}
-              </button>
-              <button type="button" className="btn btn-ghost" onClick={handleLogout}>
-                Вийти
-              </button>
-            </>
-          ) : (
+        <div className="topbar-actions topbar-actions-guest">
+          {me?.authenticated ? null : (
             <a className="btn btn-primary" href="/api/auth/strava">
               Підключити Strava
             </a>
@@ -652,24 +532,6 @@ export function AppShell() {
                     {availableYears.map((year) => (
                       <option key={year} value={year}>
                         {year}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="filter">
-                  <span>Сезон</span>
-                  <select
-                    value={selectedSeason}
-                    onChange={(event) => {
-                      setSelectedSeason(event.target.value as SeasonId | "all");
-                      setSelectedId(null);
-                    }}
-                  >
-                    <option value="all">Усі сезони</option>
-                    {SEASON_OPTIONS.map((season) => (
-                      <option key={season.id} value={season.id}>
-                        {season.label}
                       </option>
                     ))}
                   </select>
@@ -899,22 +761,6 @@ export function AppShell() {
                                 )}
                               </strong>
                             </div>
-
-                            <button
-                              type="button"
-                              className="btn btn-primary gpx-download-btn"
-                              onClick={() =>
-                                downloadGpx(
-                                  [track],
-                                  `${track.athleteName}-${track.name}`,
-                                )
-                              }
-                            >
-                              Скачати GPX
-                              {compareWithId && track.userId !== myId
-                                ? ` · ${track.athleteName}`
-                                : ""}
-                            </button>
                           </section>
                         ) : null}
                       </div>

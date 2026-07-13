@@ -100,9 +100,33 @@ export function findAllConqueredSummits(
   return [...byId.values()].sort((a, b) => b.elevationM - a.elevationM);
 }
 
+/** Скільки різних маршрутів «взяли» вершину (1 трек = максимум 1 зарахування). */
+export function countSummitVisits(
+  tracks: { coordinates: [number, number][] }[],
+  radiusM = SUMMIT_RADIUS_M,
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const track of tracks) {
+    for (const summit of findConqueredSummits(track.coordinates, radiusM)) {
+      counts.set(summit.id, (counts.get(summit.id) ?? 0) + 1);
+    }
+  }
+  return counts;
+}
+
 export function formatSummitList(summits: Summit[], limit = 4): string {
   if (summits.length === 0) return "";
   const names = summits.slice(0, limit).map((s) => s.name);
   const rest = summits.length - names.length;
   return rest > 0 ? `${names.join(" · ")} · +${rest}` : names.join(" · ");
+}
+
+export function formatVisitCount(count: number): string {
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return `${count} раз`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) {
+    return `${count} рази`;
+  }
+  return `${count} разів`;
 }
