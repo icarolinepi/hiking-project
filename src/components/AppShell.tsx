@@ -1,7 +1,5 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
-import dynamic from "next/dynamic";
 import type {
   AthletePayload,
   TrackPayload,
@@ -20,6 +18,7 @@ import {
   COMPARE_ME_COLOR,
   COMPARE_OTHER_COLOR,
 } from "@/lib/athleteColors";
+import { downloadGpx } from "@/lib/gpx";
 import {
   SEASON_OPTIONS,
   collectTrackYears,
@@ -27,6 +26,8 @@ import {
   type SeasonId,
 } from "@/lib/seasons";
 import { formatSolarTime, getSolarEvents } from "@/lib/solar";
+import dynamic from "next/dynamic";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 
 const TracksMap = dynamic(
   () => import("@/components/TracksMap").then((m) => m.TracksMap),
@@ -260,6 +261,11 @@ export function AppShell() {
     };
   }, [compareAthlete, compareWithId, filtered, myId, selectedArea]);
 
+  const comparePartnerTracks = useMemo(() => {
+    if (!compareWithId) return [];
+    return filtered.filter((track) => track.userId === compareWithId);
+  }, [compareWithId, filtered]);
+
   const summitsByTrackId = useMemo(() => {
     const map = new Map<string, ReturnType<typeof findConqueredSummits>>();
     for (const track of filtered) {
@@ -335,28 +341,28 @@ export function AppShell() {
   const selected = filtered.find((t) => t.id === selectedId) ?? null;
   const selectedAreas = selected
     ? carpathianAreaNames
-        .filter((area) =>
-          selected.coordinates.some((coordinate) =>
-            isCoordinateInArea(area.name, coordinate),
-          ),
-        )
-        .map((area) => area.name)
+      .filter((area) =>
+        selected.coordinates.some((coordinate) =>
+          isCoordinateInArea(area.name, coordinate),
+        ),
+      )
+      .map((area) => area.name)
     : [];
   const selectedSolarEvents = selected ? getSolarEvents(selected) : [];
   const selectedSummits = selected
     ? findConqueredSummits(selected.coordinates).filter(
-        (summit) =>
-          selectedArea === "Усі масиви" ||
-          isCoordinateInArea(selectedArea, summit.coordinate),
-      )
+      (summit) =>
+        selectedArea === "Усі масиви" ||
+        isCoordinateInArea(selectedArea, summit.coordinate),
+    )
     : [];
   const visibleSummits = selected
     ? selectedSummits
     : mapStats.summits.filter(
-        (summit) =>
-          selectedArea === "Усі масиви" ||
-          isCoordinateInArea(selectedArea, summit.coordinate),
-      );
+      (summit) =>
+        selectedArea === "Усі масиви" ||
+        isCoordinateInArea(selectedArea, summit.coordinate),
+    );
 
   return (
     <div className="shell">
@@ -485,18 +491,16 @@ export function AppShell() {
                       return (
                         <div key={row.key} className="compare-score-row">
                           <div
-                            className={`compare-score-side me ${
-                              winner === "me" ? "wins" : ""
-                            }`}
+                            className={`compare-score-side me ${winner === "me" ? "wins" : ""
+                              }`}
                           >
                             <strong>{row.me}</strong>
                             {winner === "me" ? <small>виграє</small> : null}
                           </div>
                           <span className="compare-score-label">{row.label}</span>
                           <div
-                            className={`compare-score-side other ${
-                              winner === "other" ? "wins" : ""
-                            }`}
+                            className={`compare-score-side other ${winner === "other" ? "wins" : ""
+                              }`}
                           >
                             <strong>{row.other}</strong>
                             {winner === "other" ? <small>виграє</small> : null}
@@ -505,6 +509,22 @@ export function AppShell() {
                       );
                     })}
                   </div>
+
+                  {comparePartnerTracks.length > 0 ? (
+                    <button
+                      type="button"
+                      className="btn btn-primary gpx-download-btn"
+                      onClick={() =>
+                        downloadGpx(
+                          comparePartnerTracks,
+                          `${compareStats.otherName}-carpathians`,
+                        )
+                      }
+                    >
+                      Скачати GPX · {compareStats.otherName} (
+                      {comparePartnerTracks.length})
+                    </button>
+                  ) : null}
                 </section>
               ) : (
                 <div className="stats">
@@ -720,6 +740,21 @@ export function AppShell() {
                       )}
                     </strong>
                   </div>
+                  <button
+                    type="button"
+                    className="btn btn-primary gpx-download-btn"
+                    onClick={() =>
+                      downloadGpx(
+                        [selected],
+                        `${selected.athleteName}-${selected.name}`,
+                      )
+                    }
+                  >
+                    Скачати GPX
+                    {compareWithId && selected.userId !== myId
+                      ? ` · ${selected.athleteName}`
+                      : ""}
+                  </button>
                   <p className="route-zoom-hint">
                     Маршрут наближено на карті. Натисни ×, щоб повернути всі треки.
                   </p>
@@ -844,9 +879,8 @@ export function AppShell() {
                   <button
                     key={athlete.id}
                     type="button"
-                    className={`compare-user-item ${
-                      compareWithId === athlete.id ? "active" : ""
-                    }`}
+                    className={`compare-user-item ${compareWithId === athlete.id ? "active" : ""
+                      }`}
                     onClick={() => selectCompareUser(athlete.id)}
                   >
                     {athlete.profile ? (
