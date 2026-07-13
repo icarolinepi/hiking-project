@@ -14,6 +14,7 @@ import {
   formatSummitList,
 } from "@/data/summits";
 import { collectTrackYears, trackMatchesYear } from "@/lib/seasons";
+import { formatSolarTime, getSolarEvents } from "@/lib/solar";
 
 const TracksMap = dynamic(
   () => import("@/components/TracksMap").then((m) => m.TracksMap),
@@ -248,24 +249,155 @@ export function PublicMapShell({ token }: PublicMapShellProps) {
               filtered.slice(0, 80).map((track) => {
                 const trackSummits = summitsByTrackId.get(track.id) ?? [];
                 const summitLabel = formatSummitList(trackSummits);
+                const isExpanded = selectedId === track.id;
+                const trackAreas = isExpanded
+                  ? carpathianAreaNames
+                      .filter((area) =>
+                        track.coordinates.some((coordinate) =>
+                          isCoordinateInArea(area.name, coordinate),
+                        ),
+                      )
+                      .map((area) => area.name)
+                  : [];
+                const trackSolar = isExpanded ? getSolarEvents(track) : [];
+
                 return (
-                  <button
+                  <div
                     key={track.id}
-                    type="button"
-                    className={`track-item ${selectedId === track.id ? "active" : ""}`}
-                    onClick={() =>
-                      setSelectedId((id) => (id === track.id ? null : track.id))
-                    }
+                    className={`track-item ${isExpanded ? "active expanded" : ""}`}
                   >
-                    <span className="track-name">{track.name}</span>
-                    <span className="track-meta">
-                      {track.distanceKm} км ·{" "}
-                      {new Date(track.startDate).toLocaleDateString("uk-UA")}
-                    </span>
-                    {summitLabel ? (
-                      <span className="track-summits">▲ {summitLabel}</span>
+                    <button
+                      type="button"
+                      className="track-item-main"
+                      onClick={() =>
+                        setSelectedId((id) =>
+                          id === track.id ? null : track.id,
+                        )
+                      }
+                    >
+                      <span className="track-item-top">
+                        <span
+                          className="athlete-swatch"
+                          style={{ background: track.color }}
+                          aria-hidden
+                        />
+                        <span className="track-name">{track.name}</span>
+                      </span>
+                      <span className="track-meta">
+                        {track.distanceKm} км ·{" "}
+                        {new Date(track.startDate).toLocaleDateString("uk-UA")}
+                        {trackSummits.length > 0
+                          ? ` · ${trackSummits.length} верх.`
+                          : ""}
+                      </span>
+                      {summitLabel ? (
+                        <span
+                          className="track-summits"
+                          title={trackSummits.map((s) => s.name).join(", ")}
+                        >
+                          ▲ {summitLabel}
+                        </span>
+                      ) : null}
+                    </button>
+
+                    {isExpanded ? (
+                      <section
+                        className="route-details route-details-inline"
+                        aria-live="polite"
+                      >
+                        <p className="route-date">
+                          {new Date(track.startDate).toLocaleDateString(
+                            "uk-UA",
+                            {
+                              day: "numeric",
+                              month: "long",
+                              year: "numeric",
+                            },
+                          )}
+                          {" · "}
+                          Хайк
+                        </p>
+
+                        {trackAreas.length > 0 ? (
+                          <p className="route-areas">
+                            ⛰ {trackAreas.join(" · ")}
+                          </p>
+                        ) : null}
+
+                        {trackSummits.length > 0 ? (
+                          <div className="route-summits">
+                            <span className="route-summits-label">
+                              Підкорені вершини
+                            </span>
+                            <ul>
+                              {trackSummits.map((summit) => (
+                                <li key={summit.id}>
+                                  <strong>{summit.name}</strong>
+                                  <span>{summit.elevationM} м</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : (
+                          <p className="route-summits-empty">
+                            Немає вершин у радіусі 200 м від треку
+                          </p>
+                        )}
+
+                        <div className="solar-times">
+                          {trackSolar.map((event) => (
+                            <div key={event.type}>
+                              <span aria-hidden>
+                                {event.type === "sunrise" ? "🌅" : "🌇"}
+                              </span>
+                              <p>
+                                <small>{event.label}</small>
+                                <strong>{formatSolarTime(event.time)}</strong>
+                              </p>
+                              {event.coordinate ? (
+                                <em>під час походу</em>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="route-metrics">
+                          <div>
+                            <strong>{track.distanceKm}</strong>
+                            <span>км</span>
+                          </div>
+                          <div>
+                            <strong>
+                              {formatDuration(track.movingTimeSeconds)}
+                            </strong>
+                            <span>у русі</span>
+                          </div>
+                          <div>
+                            <strong>
+                              {formatDuration(track.elapsedTimeSeconds)}
+                            </strong>
+                            <span>загалом</span>
+                          </div>
+                          <div>
+                            <strong>
+                              {Math.round(track.elevationGainM ?? 0)}
+                            </strong>
+                            <span>м набору</span>
+                          </div>
+                        </div>
+
+                        <div className="route-summary">
+                          <span>Середній темп</span>
+                          <strong>
+                            {formatPace(
+                              track.movingTimeSeconds,
+                              track.distanceKm,
+                            )}
+                          </strong>
+                        </div>
+                      </section>
                     ) : null}
-                  </button>
+                  </div>
                 );
               })
             )}
@@ -283,4 +415,19 @@ export function PublicMapShell({ token }: PublicMapShellProps) {
       ) : null}
     </div>
   );
+}
+
+function formatDuration(seconds: number) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, "0")}`
+    : `${minutes} хв`;
+}
+
+function formatPace(seconds: number, distanceKm: number) {
+  if (!distanceKm) return "—";
+  const secondsPerKm = Math.round(seconds / distanceKm);
+  const minutes = Math.floor(secondsPerKm / 60);
+  return `${minutes}:${String(secondsPerKm % 60).padStart(2, "0")} /км`;
 }
