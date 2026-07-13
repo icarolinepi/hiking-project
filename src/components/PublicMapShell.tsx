@@ -129,15 +129,15 @@ export function PublicMapShell({ token }: PublicMapShellProps) {
       );
 
   return (
-    <div className="shell">
+    <div className="shell public-shell">
       <header className="topbar">
         <div className="brand-block">
           <p className="brand">Стежки</p>
           <p className="tagline">карта Карпат · {ownerName}</p>
         </div>
-        <div className="topbar-actions">
+        <div className="topbar-actions topbar-actions-guest">
           <a className="btn btn-primary" href="/">
-            Відкрити свої Стежки
+            Мої Стежки
           </a>
         </div>
       </header>
