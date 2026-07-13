@@ -752,13 +752,11 @@ export function AppShell() {
                             }
                           >
                             <span className="track-item-top">
-                              {compareWithId ? (
-                                <span
-                                  className="athlete-swatch"
-                                  style={{ background: track.color }}
-                                  aria-hidden
-                                />
-                              ) : null}
+                              <span
+                                className="athlete-swatch"
+                                style={{ background: track.color }}
+                                aria-hidden
+                              />
                               <span className="track-name">{track.name}</span>
                             </span>
                             <span className="track-meta">

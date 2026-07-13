@@ -18,12 +18,21 @@ export const ATHLETE_COLORS = [
 export const COMPARE_ME_COLOR = "#ff3b1f";
 export const COMPARE_OTHER_COLOR = "#4da3ff";
 
-export function colorForAthleteId(id: string): string {
+function hashId(id: string): number {
   let hash = 0;
   for (let i = 0; i < id.length; i += 1) {
     hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
   }
-  return ATHLETE_COLORS[hash % ATHLETE_COLORS.length];
+  return hash;
+}
+
+export function colorForAthleteId(id: string): string {
+  return ATHLETE_COLORS[hashId(id) % ATHLETE_COLORS.length];
+}
+
+/** Різні кольори для походів однієї людини на карті. */
+export function colorForTrackId(id: string): string {
+  return ATHLETE_COLORS[hashId(id) % ATHLETE_COLORS.length];
 }
 
 export function athleteDisplayName(user: {

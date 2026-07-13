@@ -1,7 +1,7 @@
 import polyline from "@mapbox/polyline";
 import {
   athleteDisplayName,
-  colorForAthleteId,
+  colorForTrackId,
 } from "@/lib/athleteColors";
 import type { TrackPayload } from "@/app/api/activities/tracks/route";
 
@@ -42,7 +42,7 @@ export function activitiesToTracks(activities: ActivityRow[]): TrackPayload[] {
         id: activity.id,
         userId: activity.userId,
         athleteName: athleteDisplayName(activity.user),
-        color: colorForAthleteId(activity.userId),
+        color: colorForTrackId(activity.id),
         name: activity.name,
         type: activity.type,
         sportType: activity.sportType,
