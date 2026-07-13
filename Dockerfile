@@ -10,7 +10,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV DATABASE_URL="postgresql://stezhky:stezhky@db:5432/stezhky?schema=public"
 RUN npx prisma generate
-RUN npm run build
+RUN npx next build
 
 FROM node:22-alpine AS runner
 WORKDIR /app

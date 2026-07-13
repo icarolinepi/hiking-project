@@ -583,12 +583,13 @@ body {
 }
 
 .track-item {
-  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
   border: 1px solid transparent;
   border-radius: 12px;
-  padding: 0.65rem 0.7rem;
+  padding: 0.35rem 0.35rem 0.35rem 0.55rem;
   background: rgba(255, 255, 255, 0.55);
-  cursor: pointer;
   transition: border-color 160ms ease, background 160ms ease;
 }
 
@@ -596,6 +597,45 @@ body {
 .track-item.active {
   border-color: rgba(232, 93, 4, 0.45);
   background: white;
+}
+
+.track-item.expanded {
+  padding-bottom: 0.55rem;
+}
+
+.track-item-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+
+.track-item-main {
+  min-width: 0;
+  text-align: left;
+  border: 0;
+  padding: 0.3rem 0.2rem;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.track-gpx-btn {
+  align-self: center;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 0.45rem 0.55rem;
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--moss);
+  font: 700 0.72rem/1 var(--font-sans), sans-serif;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+
+.track-gpx-btn:hover {
+  border-color: rgba(47, 93, 80, 0.45);
+  background: rgba(47, 93, 80, 0.08);
 }
 
 .track-name {
@@ -633,18 +673,10 @@ body {
   animation: rise 240ms ease both;
 }
 
-.route-details-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.7rem;
-}
-
-.route-details-header h2 {
-  margin: 0.15rem 0 0;
-  font-family: var(--font-display), sans-serif;
-  font-size: 1rem;
-  line-height: 1.25;
+.route-details-inline {
+  margin: 0.45rem 0.2rem 0.15rem;
+  padding: 0.75rem 0.8rem;
+  box-shadow: none;
 }
 
 .eyebrow {

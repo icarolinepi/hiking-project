@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { exchangeStravaCode } from "@/lib/strava";
 import { syncUserActivities } from "@/lib/sync";
+import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
   const appUrl = process.env.APP_URL || "http://localhost:3000";

@@ -20,6 +20,14 @@ import {
 } from "@/lib/athleteColors";
 import { downloadGpx } from "@/lib/gpx";
 import {
+  downloadPhotoGpx,
+  emptyPhotosGpxMessage,
+  extractPhotoPoints,
+  formatPhotoTimeRange,
+  restampTrackToPhotoWindow,
+  routedPointsToGpx,
+} from "@/lib/photosToGpx";
+import {
   SEASON_OPTIONS,
   collectTrackYears,
   trackMatchesPeriod,
@@ -27,7 +35,15 @@ import {
 } from "@/lib/seasons";
 import { formatSolarTime, getSolarEvents } from "@/lib/solar";
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type ChangeEvent,
+} from "react";
 
 const TracksMap = dynamic(
   () => import("@/components/TracksMap").then((m) => m.TracksMap),
@@ -68,12 +84,14 @@ export function AppShell() {
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [photoGpxBusy, setPhotoGpxBusy] = useState(false);
   const [terrainEnabled, setTerrainEnabled] = useState(true);
   const [showAreas, setShowAreas] = useState(true);
   const [basemap, setBasemap] = useState<"topo" | "satellite">("topo");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isPending, startTransition] = useTransition();
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const myId = me?.user?.id ?? null;
 
@@ -261,11 +279,6 @@ export function AppShell() {
     };
   }, [compareAthlete, compareWithId, filtered, myId, selectedArea]);
 
-  const comparePartnerTracks = useMemo(() => {
-    if (!compareWithId) return [];
-    return filtered.filter((track) => track.userId === compareWithId);
-  }, [compareWithId, filtered]);
-
   const summitsByTrackId = useMemo(() => {
     const map = new Map<string, ReturnType<typeof findConqueredSummits>>();
     for (const track of filtered) {
@@ -326,6 +339,78 @@ export function AppShell() {
     }
   }
 
+  async function handlePhotosToGpx(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (files.length === 0) return;
+
+    setPhotoGpxBusy(true);
+    setError(null);
+    try {
+      const extracted = await extractPhotoPoints(files);
+      if (extracted.points.length === 0) {
+        throw new Error(emptyPhotosGpxMessage(extracted));
+      }
+
+      const routeRes = await fetch("/api/route/trail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          waypoints: extracted.points.map((point) => ({
+            lat: point.lat,
+            lon: point.lon,
+            time: point.time.toISOString(),
+            ele: point.ele,
+          })),
+        }),
+      });
+      const routeData = await routeRes.json();
+      if (!routeRes.ok) {
+        throw new Error(
+          routeData.error || "Не вдалося прокласти маршрут по стежках",
+        );
+      }
+
+      const routedPoints = (routeData.points ?? []) as Array<{
+        lat: number;
+        lon: number;
+        ele: number | null;
+        time: string;
+      }>;
+      if (routedPoints.length < 2 && extracted.points.length > 1) {
+        throw new Error("Маршрут по стежках порожній");
+      }
+
+      const firstPhoto = extracted.points[0];
+      const lastPhoto = extracted.points[extracted.points.length - 1];
+      const timedTrack = restampTrackToPhotoWindow(
+        routedPoints,
+        firstPhoto.time,
+        lastPhoto.time,
+      );
+      const gpx = routedPointsToGpx(timedTrack, "Маршрут з фото");
+      downloadPhotoGpx(gpx, "marshrut-z-foto");
+
+      const distanceHint =
+        typeof routeData.distanceKm === "number"
+          ? ` · ~${routeData.distanceKm} км`
+          : "";
+      const skipHint =
+        extracted.skipped > 0
+          ? ` Пропущено без GPS/часу: ${extracted.skipped}.`
+          : "";
+      setError(
+        `GPX: ${extracted.points.length} фото · ${formatPhotoTimeRange(firstPhoto.time, lastPhoto.time)}${distanceHint}.${skipHint}`,
+      );
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Не вдалося зібрати GPX з фото",
+      );
+    } finally {
+      setPhotoGpxBusy(false);
+    }
+  }
+
   function selectCompareUser(athleteId: string) {
     setCompareWithId(athleteId);
     setCompareOpen(false);
@@ -339,16 +424,6 @@ export function AppShell() {
   }
 
   const selected = filtered.find((t) => t.id === selectedId) ?? null;
-  const selectedAreas = selected
-    ? carpathianAreaNames
-      .filter((area) =>
-        selected.coordinates.some((coordinate) =>
-          isCoordinateInArea(area.name, coordinate),
-        ),
-      )
-      .map((area) => area.name)
-    : [];
-  const selectedSolarEvents = selected ? getSolarEvents(selected) : [];
   const selectedSummits = selected
     ? findConqueredSummits(selected.coordinates).filter(
       (summit) =>
@@ -404,6 +479,23 @@ export function AppShell() {
                     ? "Скопійовано!"
                     : "Поділитися картою"}
               </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => photoInputRef.current?.click()}
+                disabled={photoGpxBusy}
+                title="Зібрати GPX з геотегів у фото"
+              >
+                {photoGpxBusy ? "Прокладаю стежки…" : "GPX з фото"}
+              </button>
+              <input
+                ref={photoInputRef}
+                type="file"
+                accept=".jpg,.jpeg,.heic,.heif,.tif,.tiff,image/jpeg,image/heic,image/heif,image/tiff"
+                multiple
+                hidden
+                onChange={handlePhotosToGpx}
+              />
               <button
                 type="button"
                 className="btn btn-ghost"
@@ -509,22 +601,6 @@ export function AppShell() {
                       );
                     })}
                   </div>
-
-                  {comparePartnerTracks.length > 0 ? (
-                    <button
-                      type="button"
-                      className="btn btn-primary gpx-download-btn"
-                      onClick={() =>
-                        downloadGpx(
-                          comparePartnerTracks,
-                          `${compareStats.otherName}-carpathians`,
-                        )
-                      }
-                    >
-                      Скачати GPX · {compareStats.otherName} (
-                      {comparePartnerTracks.length})
-                    </button>
-                  ) : null}
                 </section>
               ) : (
                 <div className="stats">
@@ -637,130 +713,6 @@ export function AppShell() {
                 </button>
               </div>
 
-              {selected ? (
-                <section className="route-details" aria-live="polite">
-                  <div className="route-details-header">
-                    <div>
-                      <span className="eyebrow">Вибраний маршрут</span>
-                      <h2>{selected.name}</h2>
-                    </div>
-                    <button
-                      type="button"
-                      className="route-details-close"
-                      aria-label="Закрити деталі маршруту"
-                      onClick={() => setSelectedId(null)}
-                    >
-                      ×
-                    </button>
-                  </div>
-
-                  {compareWithId ? (
-                    <p className="route-athlete">
-                      <span
-                        className="athlete-swatch"
-                        style={{ background: selected.color }}
-                        aria-hidden
-                      />
-                      {selected.athleteName}
-                    </p>
-                  ) : null}
-
-                  <p className="route-date">
-                    {new Date(selected.startDate).toLocaleDateString("uk-UA", {
-                      day: "numeric",
-                      month: "long",
-                      year: "numeric",
-                    })}
-                    {" · "}
-                    Хайк
-                  </p>
-
-                  {selectedAreas.length > 0 ? (
-                    <p className="route-areas">⛰ {selectedAreas.join(" · ")}</p>
-                  ) : null}
-
-                  {selectedSummits.length > 0 ? (
-                    <div className="route-summits">
-                      <span className="route-summits-label">Підкорені вершини</span>
-                      <ul>
-                        {selectedSummits.map((summit) => (
-                          <li key={summit.id}>
-                            <strong>{summit.name}</strong>
-                            <span>{summit.elevationM} м</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : (
-                    <p className="route-summits-empty">
-                      Немає вершин у радіусі 200 м від треку
-                    </p>
-                  )}
-
-                  <div className="solar-times">
-                    {selectedSolarEvents.map((event) => (
-                      <div key={event.type}>
-                        <span aria-hidden>
-                          {event.type === "sunrise" ? "🌅" : "🌇"}
-                        </span>
-                        <p>
-                          <small>{event.label}</small>
-                          <strong>{formatSolarTime(event.time)}</strong>
-                        </p>
-                        {event.coordinate ? <em>під час походу</em> : null}
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="route-metrics">
-                    <div>
-                      <strong>{selected.distanceKm}</strong>
-                      <span>км</span>
-                    </div>
-                    <div>
-                      <strong>{formatDuration(selected.movingTimeSeconds)}</strong>
-                      <span>у русі</span>
-                    </div>
-                    <div>
-                      <strong>{formatDuration(selected.elapsedTimeSeconds)}</strong>
-                      <span>загалом</span>
-                    </div>
-                    <div>
-                      <strong>{Math.round(selected.elevationGainM ?? 0)}</strong>
-                      <span>м набору</span>
-                    </div>
-                  </div>
-
-                  <div className="route-summary">
-                    <span>Середній темп</span>
-                    <strong>
-                      {formatPace(
-                        selected.movingTimeSeconds,
-                        selected.distanceKm,
-                      )}
-                    </strong>
-                  </div>
-                  <button
-                    type="button"
-                    className="btn btn-primary gpx-download-btn"
-                    onClick={() =>
-                      downloadGpx(
-                        [selected],
-                        `${selected.athleteName}-${selected.name}`,
-                      )
-                    }
-                  >
-                    Скачати GPX
-                    {compareWithId && selected.userId !== myId
-                      ? ` · ${selected.athleteName}`
-                      : ""}
-                  </button>
-                  <p className="route-zoom-hint">
-                    Маршрут наближено на карті. Натисни ×, щоб повернути всі треки.
-                  </p>
-                </section>
-              ) : null}
-
               <div className="track-list">
                 {loading ? (
                   <p className="muted">Завантажую треки…</p>
@@ -772,44 +724,202 @@ export function AppShell() {
                   filtered.slice(0, 80).map((track) => {
                     const trackSummits = summitsByTrackId.get(track.id) ?? [];
                     const summitLabel = formatSummitList(trackSummits);
-                    return (
-                      <button
-                        key={track.id}
-                        type="button"
-                        className={`track-item ${selectedId === track.id ? "active" : ""}`}
-                        onClick={() =>
-                          setSelectedId((id) =>
-                            id === track.id ? null : track.id,
+                    const isExpanded = selectedId === track.id;
+                    const trackAreas = isExpanded
+                      ? carpathianAreaNames
+                          .filter((area) =>
+                            track.coordinates.some((coordinate) =>
+                              isCoordinateInArea(area.name, coordinate),
+                            ),
                           )
-                        }
+                          .map((area) => area.name)
+                      : [];
+                    const trackSolar = isExpanded ? getSolarEvents(track) : [];
+
+                    return (
+                      <div
+                        key={track.id}
+                        className={`track-item ${isExpanded ? "active expanded" : ""}`}
                       >
-                        <span className="track-item-top">
-                          {compareWithId ? (
-                            <span
-                              className="athlete-swatch"
-                              style={{ background: track.color }}
-                              aria-hidden
-                            />
-                          ) : null}
-                          <span className="track-name">{track.name}</span>
-                        </span>
-                        <span className="track-meta">
-                          {compareWithId ? `${track.athleteName} · ` : ""}
-                          {track.distanceKm} км ·{" "}
-                          {new Date(track.startDate).toLocaleDateString("uk-UA")}
-                          {trackSummits.length > 0
-                            ? ` · ${trackSummits.length} верх.`
-                            : ""}
-                        </span>
-                        {summitLabel ? (
-                          <span
-                            className="track-summits"
-                            title={trackSummits.map((s) => s.name).join(", ")}
+                        <div className="track-item-row">
+                          <button
+                            type="button"
+                            className="track-item-main"
+                            onClick={() =>
+                              setSelectedId((id) =>
+                                id === track.id ? null : track.id,
+                              )
+                            }
                           >
-                            ▲ {summitLabel}
-                          </span>
+                            <span className="track-item-top">
+                              {compareWithId ? (
+                                <span
+                                  className="athlete-swatch"
+                                  style={{ background: track.color }}
+                                  aria-hidden
+                                />
+                              ) : null}
+                              <span className="track-name">{track.name}</span>
+                            </span>
+                            <span className="track-meta">
+                              {compareWithId ? `${track.athleteName} · ` : ""}
+                              {track.distanceKm} км ·{" "}
+                              {new Date(track.startDate).toLocaleDateString(
+                                "uk-UA",
+                              )}
+                              {trackSummits.length > 0
+                                ? ` · ${trackSummits.length} верх.`
+                                : ""}
+                            </span>
+                            {summitLabel ? (
+                              <span
+                                className="track-summits"
+                                title={trackSummits.map((s) => s.name).join(", ")}
+                              >
+                                ▲ {summitLabel}
+                              </span>
+                            ) : null}
+                          </button>
+                          <button
+                            type="button"
+                            className="track-gpx-btn"
+                            aria-label={`Скачати GPX: ${track.name}`}
+                            onClick={() =>
+                              downloadGpx(
+                                [track],
+                                `${track.athleteName}-${track.name}`,
+                              )
+                            }
+                          >
+                            GPX
+                          </button>
+                        </div>
+
+                        {isExpanded ? (
+                          <section
+                            className="route-details route-details-inline"
+                            aria-live="polite"
+                          >
+                            {compareWithId ? (
+                              <p className="route-athlete">
+                                <span
+                                  className="athlete-swatch"
+                                  style={{ background: track.color }}
+                                  aria-hidden
+                                />
+                                {track.athleteName}
+                              </p>
+                            ) : null}
+
+                            <p className="route-date">
+                              {new Date(track.startDate).toLocaleDateString(
+                                "uk-UA",
+                                {
+                                  day: "numeric",
+                                  month: "long",
+                                  year: "numeric",
+                                },
+                              )}
+                              {" · "}
+                              Хайк
+                            </p>
+
+                            {trackAreas.length > 0 ? (
+                              <p className="route-areas">
+                                ⛰ {trackAreas.join(" · ")}
+                              </p>
+                            ) : null}
+
+                            {trackSummits.length > 0 ? (
+                              <div className="route-summits">
+                                <span className="route-summits-label">
+                                  Підкорені вершини
+                                </span>
+                                <ul>
+                                  {trackSummits.map((summit) => (
+                                    <li key={summit.id}>
+                                      <strong>{summit.name}</strong>
+                                      <span>{summit.elevationM} м</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : (
+                              <p className="route-summits-empty">
+                                Немає вершин у радіусі 200 м від треку
+                              </p>
+                            )}
+
+                            <div className="solar-times">
+                              {trackSolar.map((event) => (
+                                <div key={event.type}>
+                                  <span aria-hidden>
+                                    {event.type === "sunrise" ? "🌅" : "🌇"}
+                                  </span>
+                                  <p>
+                                    <small>{event.label}</small>
+                                    <strong>{formatSolarTime(event.time)}</strong>
+                                  </p>
+                                  {event.coordinate ? (
+                                    <em>під час походу</em>
+                                  ) : null}
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="route-metrics">
+                              <div>
+                                <strong>{track.distanceKm}</strong>
+                                <span>км</span>
+                              </div>
+                              <div>
+                                <strong>
+                                  {formatDuration(track.movingTimeSeconds)}
+                                </strong>
+                                <span>у русі</span>
+                              </div>
+                              <div>
+                                <strong>
+                                  {formatDuration(track.elapsedTimeSeconds)}
+                                </strong>
+                                <span>загалом</span>
+                              </div>
+                              <div>
+                                <strong>
+                                  {Math.round(track.elevationGainM ?? 0)}
+                                </strong>
+                                <span>м набору</span>
+                              </div>
+                            </div>
+
+                            <div className="route-summary">
+                              <span>Середній темп</span>
+                              <strong>
+                                {formatPace(
+                                  track.movingTimeSeconds,
+                                  track.distanceKm,
+                                )}
+                              </strong>
+                            </div>
+
+                            <button
+                              type="button"
+                              className="btn btn-primary gpx-download-btn"
+                              onClick={() =>
+                                downloadGpx(
+                                  [track],
+                                  `${track.athleteName}-${track.name}`,
+                                )
+                              }
+                            >
+                              Скачати GPX
+                              {compareWithId && track.userId !== myId
+                                ? ` · ${track.athleteName}`
+                                : ""}
+                            </button>
+                          </section>
                         ) : null}
-                      </button>
+                      </div>
                     );
                   })
                 )}
